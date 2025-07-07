@@ -1,143 +1,293 @@
-// Function to handle search results
-async function searchResults(keyword) {
+ async function searchResults(keyword) {
     try {
-        const encodedKeyword = encodeURIComponent(keyword);  // Ensuring the keyword is properly encoded
-        const url = `https://iwaatch.com/?q=${encodedKeyword}`;  // Constructing the search URL
-        const response = await fetchV2(url);  // Fetching the search page HTML
-        const html = await response.text();  // Converting the response to text
+        const encodedKeyword = encodeURIComponent(keyword);
+        const responseText = await soraFetch(`https://api.themoviedb.org/3/search/multi?api_key=adc48d20c0956934fb224de5c40bb85d&query=${encodedKeyword}`);
+        const data = await responseText.json();
 
-        // Array to store the results
-        const results = [];
-
-        // Regex pattern to match individual search result blocks
-        const containerRegex = /<div class="col-xs-12 col-sm-6 col-md-3 [^"]*">([\s\S]*?)<\/a>\s*<\/div>/g;
-        let match;
-
-        // Looping through each search result and extracting the necessary details
-        while ((match = containerRegex.exec(html)) !== null) {
-            const block = match[1];  // Extracting the block containing the movie details
-
-            // Extracting the href, image, and title from the block
-            const hrefMatch = block.match(/<a href="([^"]+)"/);
-            const imgMatch = block.match(/background-image:\s*url\('([^']+)'\)/);
-            const titleMatch = block.match(/<div class="post-title">([^<]+)<\/div>/);
-
-            if (hrefMatch && imgMatch && titleMatch) {
-                // Pushing the result object into the results array
-                results.push({
-                    title: titleMatch[1].trim(),  // Movie title
-                    image: imgMatch[1].trim(),  // Image URL
-                    href: hrefMatch[1].trim()  // Movie URL
-                });
+        const transformedResults = data.results.map(result => {
+            if(result.media_type === "movie" || result.title) {
+                return {
+                    title: result.title || result.name || result.original_title || result.original_name,
+                    image: `https://image.tmdb.org/t/p/w500${result.poster_path}`,
+                    href: `https://flickystream.com/player/movie/${result.id}`
+                };
+            } else if(result.media_type === "tv" || result.name) {
+                return {
+                    title: result.name || result.title || result.original_name || result.original_title,
+                    image: `https://image.tmdb.org/t/p/w500${result.poster_path}`,
+                    href: `https://flickystream.com/player/tv/${result.id}/1/1`
+                };
+            } else {
+                return {
+                    title: result.title || result.name || result.original_name || result.original_title || "Untitled",
+                    image: `https://image.tmdb.org/t/p/w500${result.poster_path}`,
+                    href: `https://flickystream.com/player/tv/${result.id}/1/1`
+                };
             }
-        }
+        });
 
-        // Returning the results as a JSON string
-        return JSON.stringify(results);
-    } catch (e) {
-        console.log("Search error:", e);  // Log any errors that occur during the search process
-        return JSON.stringify([]);  // Return an empty array in case of an error
+        return JSON.stringify(transformedResults);
+    } catch (error) {
+        console.log('Fetch error in searchResults:', error);
+        return JSON.stringify([{ title: 'Error', image: '', href: '' }]);
     }
 }
 
-// Function to handle extracting movie details
 async function extractDetails(url) {
     try {
-        const res = await fetchV2(url);  // Fetching the movie details page
-        const html = await res.text();  // Converting the response to text
+        if(url.includes('movie')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/movie\/([^\/]+)/);
+            if (!match) throw new Error("Invalid URL format");
 
-        // Using regex to extract description and other info from the page
-        const descMatch = html.match(/<div id="movie-desc"[^>]*>[\s\S]*?<h2[^>]*>([^<]+)<\/h2>[\s\S]*?<h2[^>]*>([^<]+)<\/h2>/);
-        const infoMatch = html.match(/<ul id="info">([\s\S]*?)<\/ul>/);
+            const movieId = match[1];
+            const responseText = await soraFetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=adc48d20c0956934fb224de5c40bb85d`);
+            const data = await responseText.json();
 
-        let duration = '', rating = '';
+            const transformedResults = [{
+                description: data.overview || 'No description available',
+                aliases: `Duration: ${data.runtime ? data.runtime + " minutes" : 'Unknown'}`,
+                airdate: `Released: ${data.release_date ? data.release_date : 'Unknown'}`
+            }];
 
-        if (infoMatch) {
-            // Extracting duration and rating from the info section
-            const timeMatch = infoMatch[1].match(/glyphicon-time"><\/span>\s*([^<\n]+)/);
-            const rateMatch = infoMatch[1].match(/glyphicon-star-empty"[^>]*><\/span>\s*([^<\n]+)/);
-            if (timeMatch) duration = timeMatch[1].trim();
-            if (rateMatch) rating = rateMatch[1].trim();
+            return JSON.stringify(transformedResults);
+        } else if(url.includes('tv')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/tv\/([^\/]+)\/([^\/]+)\/([^\/]+)/);
+            if (!match) throw new Error("Invalid URL format");
+
+            const showId = match[1];
+            const responseText = await soraFetch(`https://api.themoviedb.org/3/tv/${showId}?api_key=adc48d20c0956934fb224de5c40bb85d`);
+            const data = await responseText.json();
+
+            const transformedResults = [{
+                description: data.overview || 'No description available',
+                aliases: `Duration: ${data.episode_run_time && data.episode_run_time.length ? data.episode_run_time.join(', ') + " minutes" : 'Unknown'}`,
+                airdate: `Aired: ${data.first_air_date ? data.first_air_date : 'Unknown'}`
+            }];
+
+            return JSON.stringify(transformedResults);
+        } else {
+            throw new Error("Invalid URL format");
         }
-
-        // Extracting description, aliases (duration), and airdate (rating)
-        const overview = descMatch ? `${descMatch[2].trim()}` : 'No description';
-        const aliases = duration ? `Duration: ${duration}` : 'Duration: Unknown';
-        const airdate = rating ? `Rating: ${rating}` : 'Rating: Unknown';
-
-        // Returning movie details as JSON
-        return JSON.stringify([
-            {
-                description: overview,  // Description of the movie
-                aliases: aliases,  // Movie duration
-                airdate: airdate  // Movie rating
-            }
-        ]);
-    } catch (err) {
-        console.log("Details error:", err);  // Log any errors that occur while extracting details
-        return JSON.stringify([
-            {
-                description: "Could not load description",  // Default description in case of error
-                aliases: "Duration: Unknown",  // Default duration
-                airdate: "Rating: Unknown"  // Default rating
-            }
-        ]);
+    } catch (error) {
+        console.log('Details error:', error);
+        return JSON.stringify([{
+            description: 'Error loading description',
+            aliases: 'Duration: Unknown',
+            airdate: 'Aired/Released: Unknown'
+        }]);
     }
 }
 
-// Function to handle extracting episodes for movies (always a single episode)
 async function extractEpisodes(url) {
     try {
-        // Returning a single episode object for movies
-        return JSON.stringify([
-            {
-                title: "Full Movie",  // Title of the movie
-                number: 1,  // Always 1 for a movie
-                href: url  // Movie URL
+        if(url.includes('movie')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/movie\/([^\/]+)/);
+            if (!match) throw new Error("Invalid URL format");
+            
+            const movieId = match[1];
+            
+            return JSON.stringify([
+                { href: `https://flickystream.com/player/movie/${movieId}`, number: 1, title: "Full Movie" }
+            ]);
+        } else if(url.includes('tv')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/tv\/([^\/]+)\/([^\/]+)\/([^\/]+)/);
+            if (!match) throw new Error("Invalid URL format");
+            
+            const showId = match[1];
+            
+            const showResponseText = await soraFetch(`https://api.themoviedb.org/3/tv/${showId}?api_key=adc48d20c0956934fb224de5c40bb85d`);
+            const showData = await showResponseText.json();
+            
+            let allEpisodes = [];
+            for (const season of showData.seasons) {
+                const seasonNumber = season.season_number;
+
+                if(seasonNumber === 0) continue;
+                
+                const seasonResponseText = await soraFetch(`https://api.themoviedb.org/3/tv/${showId}/season/${seasonNumber}?api_key=adc48d20c0956934fb224de5c40bb85d`);
+                const seasonData = await seasonResponseText.json();
+                
+                if (seasonData.episodes && seasonData.episodes.length) {
+                    const episodes = seasonData.episodes.map(episode => ({
+                        href: `https://flickystream.com/player/tv/${showId}/${seasonNumber}/${episode.episode_number}`,
+                        number: episode.episode_number,
+                        title: episode.name || ""
+                    }));
+                    allEpisodes = allEpisodes.concat(episodes);
+                }
             }
-        ]);
-    } catch (e) {
-        console.log("Episode error:", e);  // Log any errors during episode extraction
-        return JSON.stringify([]);  // Return an empty array in case of error
-    }
-}
-
-// Function to handle extracting stream URL (video quality) and subtitles
-async function extractStreamUrl(url) {
-    try {
-        const res = await fetchV2(url);  // Fetching the movie's streaming page
-        const html = await res.text();  // Converting the response to text
-
-        // Extracting video sources (1080p, 720p, etc.)
-        const sources = [...html.matchAll(/<source\s+src="([^"]+)"[^>]*type="video\/mp4"[^>]*size="(\d+)"/g)];
-
-        // Extracting the Arabic subtitle file if available
-        const trackMatch = html.match(/<track\s+src="([^"]+)"[^>]*label="Arabic"[^>]*>/);
-
-        const streams = sources.map(source => {
-            // Mapping each source to an object with quality and URL
-            return {
-                title: `${source[2]}p`,  // The quality (e.g., 1080p)
-                url: source[1]  // The video URL
-            };
-        });
-
-        let subtitles = '';
-        if (trackMatch) {
-            // If Arabic subtitles are available, set the subtitle URL
-            subtitles = trackMatch[1];
+            
+            return JSON.stringify(allEpisodes);
+        } else {
+            throw new Error("Invalid URL format");
         }
+    } catch (error) {
+        console.log('Fetch error in extractEpisodes:', error);
+        return JSON.stringify([]);
+    }    
+}
 
-        // Returning the streams and subtitles as a JSON object
-        return JSON.stringify({
-            streams,  // Array of available streams
-            subtitles  // Arabic subtitle URL
-        });
-    } catch (e) {
-        console.log("Stream extract error:", e);  // Log any errors during stream extraction
-        return JSON.stringify({
-            streams: [],  // Return an empty streams array in case of error
-            subtitles: ''  // No subtitles in case of error
-        });
+async function extractStreamUrl(url) {
+    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
+    try {
+        if (url.includes('movie')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/movie\/([^\/]+)/);
+
+            if (!match) throw new Error("Invalid URL format");
+            
+            const movieId = match[1];
+
+            let streams = [];
+
+            for (let i = 1; i <= 5; i++) {
+                const apiUrl = `https://player.vidzee.wtf/api/server?id=${movieId}&sr=${i}`;
+                const response = await soraFetch(apiUrl);
+                const data = await response.json();
+
+                if (data.url) {
+                    const stream = data.url?.find(source => source.lang === 'English' || source.lang === 'english');
+
+                    if (stream) {
+                        const headers = {
+                            'Referer': data.headers.Referer
+                        };
+
+                        streams.push(data.provider);
+                        streams.push(stream.link);
+                        // streams.push(`headers: ${JSON.stringify(headers)}`);
+
+                        // streams.push({
+                        //     title: data.provider,
+                        //     streamUrl: stream.link,
+                        //     headers: headers
+                        // });
+                    }
+                }
+            }
+            
+            const subtitleTrackResponse = await soraFetch(`https://sub.wyzie.ru/search?id=${movieId}`);
+            const subtitleTrackData = await subtitleTrackResponse.json();
+
+            let subtitleTrack = subtitleTrackData.find(track =>
+                track.display.includes('English') && (track.encoding === 'ASCII' || track.encoding === 'UTF-8')
+            );
+
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP1252'));
+            }
+
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP1250'));
+            }
+    
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP850'));
+            }
+
+            subtitle = subtitleTrack ? subtitleTrack.url : '';
+
+            const result = {
+                streams,
+                subtitles: subtitle
+            };
+            
+            console.log("Final result:", result);
+            return JSON.stringify(result);
+        } else if (url.includes('tv')) {
+            const match = url.match(/https:\/\/flickystream\.com\/player\/tv\/([^\/]+)\/([^\/]+)\/([^\/]+)/);
+            
+            if (!match) throw new Error("Invalid URL format");
+            
+            const showId = match[1];
+            const seasonNumber = match[2];
+            const episodeNumber = match[3];
+
+            let streams = [];
+
+            for (let i = 1; i <= 5; i++) {
+                const apiUrl = `https://player.vidzee.wtf/api/server?id=${showId}&sr=${i}&ss=${seasonNumber}&ep=${episodeNumber}`;
+                const response = await soraFetch(apiUrl);
+                const data = await response.json();
+
+                if (data.url) {
+                    const stream = data.url?.find(source => source.lang === 'English' || source.lang === 'english');
+                    
+                    if (stream) {
+                        const headers = {
+                            'Referer': data.headers.Referer
+                        };
+
+                        streams.push(data.provider);
+                        streams.push(stream.link);
+                        // streams.push(`headers: ${JSON.stringify(headers)}`);
+
+                        // streams.push({
+                        //     title: data.provider,
+                        //     streamUrl: stream.link,
+                        //     headers: headers
+                        // });
+                    }
+                }
+            }
+            
+            const subtitleTrackResponse = await soraFetch(`https://sub.wyzie.ru/search?id=${showId}&season=${seasonNumber}&episode=${episodeNumber}`);
+            const subtitleTrackData = await subtitleTrackResponse.json();
+
+            let subtitleTrack = subtitleTrackData.find(track =>
+                track.display.includes('English') && (track.encoding === 'ASCII' || track.encoding === 'UTF-8')
+            );
+
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP1252'));
+            }
+
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP1250'));
+            }
+    
+            if (!subtitleTrack) {
+                subtitleTrack = subtitleTrackData.find(track => track.display.includes('English') && (track.encoding === 'CP850'));
+            }
+
+            subtitle = subtitleTrack ? subtitleTrack.url : '';
+
+            const result = {
+                streams,
+                subtitles: subtitle
+            };
+            
+            console.log("Final result:", result);
+            return JSON.stringify(result);
+        } else {
+            throw new Error("Invalid URL format");
+        }
+    } catch (error) {
+        console.log("Error in extractStreamUrl:", error);
+        return null;
     }
 }
+
+// extractStreamUrl("https://flickystream.com/player/movie/950387");
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try {
+            return await fetch(url, options);
+        } catch(error) {
+            return null;
+        }
+    }
+}
+
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
+}
+
+function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
