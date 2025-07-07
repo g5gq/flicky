@@ -1,4 +1,4 @@
- async function searchResults(keyword) {
+async function searchResults(keyword) {
     try {
         const encodedKeyword = encodeURIComponent(keyword);
         const responseText = await soraFetch(`https://api.themoviedb.org/3/search/multi?api_key=adc48d20c0956934fb224de5c40bb85d&query=${encodedKeyword}`);
@@ -155,13 +155,6 @@ async function extractStreamUrl(url) {
 
                         streams.push(data.provider);
                         streams.push(stream.link);
-                        // streams.push(`headers: ${JSON.stringify(headers)}`);
-
-                        // streams.push({
-                        //     title: data.provider,
-                        //     streamUrl: stream.link,
-                        //     headers: headers
-                        // });
                     }
                 }
             }
@@ -220,13 +213,6 @@ async function extractStreamUrl(url) {
 
                         streams.push(data.provider);
                         streams.push(stream.link);
-                        // streams.push(`headers: ${JSON.stringify(headers)}`);
-
-                        // streams.push({
-                        //     title: data.provider,
-                        //     streamUrl: stream.link,
-                        //     headers: headers
-                        // });
                     }
                 }
             }
@@ -268,8 +254,6 @@ async function extractStreamUrl(url) {
     }
 }
 
-// extractStreamUrl("https://flickystream.com/player/movie/950387");
-
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
     try {
         return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
@@ -289,5 +273,3 @@ function _0xCheck() {
         return _0x7E9A(_0x3c);
     })(_0xB4F2()) : !1;
 }
-
-function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
